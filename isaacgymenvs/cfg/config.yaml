@@ -42,7 +42,7 @@ multi_gpu: False
 wandb_activate: False
 wandb_group: ''
 wandb_name: ${train.params.config.name}
-wandb_entity: ''
+wandb_entity: 'drawal3'
 wandb_project: 'isaacgymenvs'
 capture_video: False
 capture_video_freq: 1464
@@ -54,7 +54,7 @@ headless: False
 
 # set default task and default training config based on task
 defaults:
-  - task: Ant
+  - task: Crawler 
   - train: ${task}PPO
   - hydra/job_logging: disabled
 
