@@ -38,6 +38,7 @@ params:
     name: ${resolve_default:Crawler,${....experiment}}
     full_experiment_name: ${.name}
     env_name: rlgpu
+    device: ${....rl_device}
     ppo: True
     mixed_precision: False
     normalize_input: True
@@ -52,7 +53,7 @@ params:
     lr_schedule: adaptive
     kl_threshold: 0.016
     score_to_win: 20000
-    max_epochs: ${resolve_default:1_000,${....max_iterations}}
+    max_epochs: ${resolve_default:500,${....max_iterations}}
     save_best_after: 50
     save_frequency: 50
     grad_norm: 1.0
@@ -69,5 +70,5 @@ params:
 
     player:
       render: True
-      games_num: 1_000_000
+      games_num: 100
       print_stats: True
