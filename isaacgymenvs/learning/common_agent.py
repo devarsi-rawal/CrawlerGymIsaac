@@ -37,6 +37,7 @@ import yaml
 from rl_games.algos_torch import a2c_continuous
 from rl_games.algos_torch import torch_ext
 from rl_games.algos_torch import central_value
+from rl_games.algos_torch import flatten
 from rl_games.algos_torch.running_mean_std import RunningMeanStd
 from rl_games.common import a2c_common
 from rl_games.common import datasets
@@ -50,6 +51,7 @@ from . import amp_datasets as amp_datasets
 
 from tensorboardX import SummaryWriter
 
+from isaacgymenvs.learning.model_wrapper import ModelWrapper
 
 class CommonAgent(a2c_continuous.A2CAgent):
 
@@ -64,6 +66,7 @@ class CommonAgent(a2c_continuous.A2CAgent):
         self._setup_action_space()
         self.bounds_loss_coef = config.get('bounds_loss_coef', None)
         self.clip_actions = config.get('clip_actions', True)
+        self.save_onnx = config.get('save_onnx', True)
 
         self.network_path = config.get('network_path', "./runs")
         self.network_path = os.path.join(self.network_path, self.config['name'])
@@ -172,9 +175,14 @@ class CommonAgent(a2c_continuous.A2CAgent):
                 if self.save_freq > 0:
                     if (epoch_num % self.save_freq == 0):
                         self.save(self.model_output_file + "_" + str(epoch_num))
+                        if self.save_onnx:
+                            self._save_onnx(self.model_output_file + "_" + str(epoch_num))
+
 
                 if epoch_num > self.max_epochs:
                     self.save(self.model_output_file)
+                    if self.save_onnx:
+                        self._save_onnx(self.model_output_file)
                     print('MAX EPOCHS NUM!')
                     return self.last_mean_rewards, epoch_num
 
@@ -532,3 +540,20 @@ class CommonAgent(a2c_continuous.A2CAgent):
         self.writer.add_scalar('info/clip_frac', torch_ext.mean_list(train_info['actor_clip_frac']).item(), frame)
         self.writer.add_scalar('info/kl', torch_ext.mean_list(train_info['kl']).item(), frame)
         return
+
+    def _save_onnx(self, fn):
+        print("Saving ONNX")
+        inputs = {
+                "obs": torch.zeros((1,) + self.obs_shape).to(self.device),
+                "rnn_states": self.rnn_states
+                }
+        self.model.eval()
+        with torch.no_grad():
+            adapter = flatten.TracingAdapter(ModelWrapper(self.model), inputs, allow_non_tensor=True)
+            traced = torch.jit.trace(adapter, adapter.flattened_inputs, check_trace=False)
+            # flattened_outputs = traced(*adapter.flattened_inputs)
+
+        torch.onnx.export(traced, *adapter.flattened_inputs, fn + ".onnx", 
+                          export_params=True, verbose=False, do_constant_folding=True,
+                          input_names=["obs"], output_names=["mu", "log_std", "value"])
+        self.model.train()

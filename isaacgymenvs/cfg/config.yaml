@@ -36,6 +36,8 @@ num_subscenes: 4 # Splits the simulation into N physics scenes and runs each one
 test: False
 # used to set checkpoint path
 checkpoint: ''
+# used to set ONNX model path
+onnx_model: ''
 # set to True to use multi-gpu horovod training
 multi_gpu: False
 

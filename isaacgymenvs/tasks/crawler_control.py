@@ -6,10 +6,7 @@ from isaacgym import gymutil, gymtorch, gymapi
 from isaacgym.torch_utils import quat_rotate_inverse, normalize
 from .base.vec_task import VecTask
 
-LIN_VEL_SIGMA = 0.01
-ANG_VEL_SIGMA = 0.3
-
-class Crawler(VecTask):
+class CrawlerControl(VecTask):
     lw, rw = "left_front_wheel", "right_front_wheel"
     cw, cwb = "caster_wheel", "caster_wheel_base"
     lwj, rwj = lw + "_joint", rw + "_joint"
@@ -26,20 +23,36 @@ class Crawler(VecTask):
 
         self.evaluate = self.cfg["eval"]["evaluate"]
 
-        if self.evaluate:
-            lin = np.linspace(-0.2, 0.2, num=self.cfg["eval"]["linVelStep"])                                          
-            ang = np.linspace(-1, 1, num=self.cfg["eval"]["angVelStep"])
-            h = np.linspace(0, 2*np.pi, num=self.cfg["eval"]["headingStep"])
-            s = np.linspace(0, 2*np.pi, num=self.cfg["eval"]["swivelStep"])
-            self.eval_params = (np.array(np.meshgrid(lin, ang, h, s)).T).reshape(-1,4)
-            cmds = self.eval_params[:, :2]
-            self.headings = self.eval_params[:, 2]
-            self.swivels = self.eval_params[:, 3]
-        super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id, headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
+        # if self.evaluate:
+        #     lin = np.linspace(-0.2, 0.2, num=self.cfg["eval"]["linVelStep"])
+        #     ang = np.linspace(-1, 1, num=self.cfg["eval"]["angVelStep"])
+        #     h = np.linspace(0, 2*np.pi, num=self.cfg["eval"]["headingStep"])
+        #     s = np.linspace(0, 2*np.pi, num=self.cfg["eval"]["swivelStep"])
+        #     self.eval_params = (np.array(np.meshgrid(lin, ang, h, s)).T).reshape(-1,4)
+        #     cmds = self.eval_params[:, :2]
+        #     self.headings = self.eval_params[:, 2]
+        #     self.swivels = self.eval_params[:, 3]
+        self.init_heading = self.cfg["env"]["initHeading"]
+        self.init_swivel = self.cfg["env"]["initSwivel"]
 
+        super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id, headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
+        
         self.gym.viewer_camera_look_at(
                 self.viewer, None, gymapi.Vec3(5, 5, 3), gymapi.Vec3(0, 0, 0))
+    
+        self.turn = 0.0 
+        self.forward = 0.0 
+        self.lin_vel = 0.0 
+        self.ang_vel = 0.0
 
+        self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_W, "up")
+        self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_A, "left")
+        self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_D, "right")
+        self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_S, "down")
+        self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_UP, "inc_lin_vel")
+        self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_DOWN, "dec_lin_vel")
+        self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_RIGHT, "inc_ang_vel")
+        self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_LEFT, "dec_ang_vel")
         dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
         self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
         self.dof_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 0]
@@ -80,16 +93,17 @@ class Crawler(VecTask):
 
         # TODO: Add 2 (# of commands) to cfg task file
         self.commands = torch.zeros(self.num_envs, 2, dtype=torch.float, device=self.device_id, requires_grad=False) 
-        self._resample_commands()
+        # self._resample_commands()
 
-        if self.evaluate:
-            self.set_commands(cmds)
-            self.set_swivel_pos(self.swivels)
-        else:
-            init_dof_pos = self.dof_state.clone() 
-            init_dof_pos[self.cwb_dof::self.num_dof, 0] = torch.randn(self.num_envs, dtype=torch.float, device=self.device_id, requires_grad=False) * 2 * np.pi 
-            self.gym.set_dof_state_tensor(self.sim, gymtorch.unwrap_tensor(init_dof_pos))
-        
+        # if self.evaluate:
+        #     self.set_commands(cmds)
+        #     self.set_swivel_pos(self.swivels)
+        # else:
+        #     init_dof_pos = self.dof_state.clone() 
+        #     init_dof_pos[self.cwb_dof::self.num_dof, 0] = torch.randn(self.num_envs, dtype=torch.float, device=self.device_id, requires_grad=False) * 2 * np.pi 
+        #     self.gym.set_dof_state_tensor(self.sim, gymtorch.unwrap_tensor(init_dof_pos))
+        s = np.zeros(self.num_envs) + self.init_swivel
+        self.set_swivel_pos(s)
 
     def create_sim(self):
         # set the up axis to be z-up given that assets are y-up by default
@@ -143,30 +157,23 @@ class Crawler(VecTask):
         dof_names = self.gym.get_asset_dof_names(crawler_asset)
         print('dof_names', dof_names)
 
-        pose = gymapi.Transform()
-        if self.vertical:
-            pose.p.y = 0.05
-            pose.r = gymapi.Quat.from_euler_zyx(-np.pi/2, -np.pi/2, 0)
-        else:
-            pose.p.z = 0.05
-            pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
-
         self.crawler_handles = []
         self.envs = []
         for i in range(self.num_envs):
             # create env instance
             pose = gymapi.Transform()
-            if self.evaluate:
-                heading = self.headings[i]
-            else:
-                heading = np.random.rand() * 2 * np.pi
+            # if self.evaluate:
+            #     heading = self.headings[i]
+            # else:
+            #     heading = np.random.rand() * 2 * np.pi
+            heading = self.init_heading
 
             if self.vertical:
                 pose.p.y = 0.05
                 pose.r = gymapi.Quat.from_euler_zyx(-np.pi/2, heading, 0)
             else:
                 pose.p.z = 0.05
-                pose.r = gymapi.Quat.from_euler_zyx(0, 0, heading)
+                pose.r = gymapi.Quat.from_euler_zyx(heading, 0, 0)
             env_ptr = self.gym.create_env(
                 self.sim, lower, upper, num_per_row
             )
@@ -207,7 +214,6 @@ class Crawler(VecTask):
             self.rew_buf[:] = compute_crawler_reward(
                 measured_lin_vel, measured_ang_vel, target_lin_vel, target_ang_vel
             )
-
 
     def compute_observations(self, env_ids=None):
         if env_ids is None:
@@ -250,15 +256,12 @@ class Crawler(VecTask):
         # TODO: Add control dof numbers to cfg file
         # actions_tensor = torch.zeros(self.num_envs * self.num_dof, device=self.device, dtype=torch.float)
         # TODO: Add action_scale to task cfg file
-        # 10.0 rad/sec wheel velocity
         _actions = actions.to(self.device) * 10.0 
          
         actions_tensor = torch.zeros(self.num_envs * self.num_dof, device=self.device, dtype=torch.float)
         actions_tensor[self.wheel_dof[0]::self.num_dof] = _actions[:,0]
         actions_tensor[self.wheel_dof[1]::self.num_dof] = _actions[:,1]
         self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(actions_tensor))
-        # import pdb
-        # pdb.set_trace()
 
     def post_physics_step(self):
         self.progress_buf += 1
@@ -274,6 +277,29 @@ class Crawler(VecTask):
         self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
         self.base_ang_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
 
+        for evt in self.gym.query_viewer_action_events(self.viewer):
+            if evt.action == "left":
+                print("TURNING LEFT")
+                self.turn = 0.5 if evt.value > 0 else 0.5
+            if evt.action == "right":
+                self.turn = -0.5 if evt.value > 0 else -0.5
+                print("TURNING RIGHT")
+            if evt.action == "up":
+                self.forward = 0.2 if evt.value > 0 else 0.2
+                print("GOING FORWARD")
+            if evt.action == "down":
+                self.forward = -0.2 if evt.value > 0 else -0.2 
+                print("GOING BACKWARD")
+            # if evt.action == "inc_lin_vel":
+            #     self.lin_vel += 0.02 if evt.value > 0 else 0
+            # if evt.action == "dec_lin_vel":
+            #     self.lin_vel -= 0.02 if evt.value > 0 else 0
+            # if evt.action == "inc_ang_vel":
+            #     self.ang_vel += 0.2 if evt.value > 0 else 0
+            # if evt.action == "dec_ang_vel":
+            #     self.ang_vel -= 0.2 if evt.value > 0 else 0
+
+        print(f"turn: {self.turn}, forward: {self.forward}") # , lin_vel: {self.lin_vel}, ang_vel: {self.ang_vel}")
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if len(env_ids) > 0:
             self.reset_idx(env_ids)
@@ -281,9 +307,13 @@ class Crawler(VecTask):
         self.compute_observations()
         self.compute_reward()
 
-        if self.cfg["env"]["randomCommands"]:
-            env_ids = (self.progress_buf % 250 == 0).nonzero(as_tuple=False).flatten() 
-            self._resample_commands(env_ids)
+        self.commands[:, 0] = torch.zeros((self.num_envs), device=self.device_id) + self.forward
+        self.commands[:, 1] = torch.zeros((self.num_envs), device=self.device_id) + self.turn
+        # print(self.commands)
+
+        # if self.cfg["env"]["randomCommands"]:
+        #     env_ids = (self.progress_buf % 250 == 0).nonzero(as_tuple=False).flatten() 
+        #     self._resample_commands(env_ids)
 
     def _apply_forces(self):
         magnet_forces = torch.zeros((self.num_envs, self.num_bodies, 3), device=self.device_id, dtype=torch.float, requires_grad=False)

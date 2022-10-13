@@ -35,7 +35,7 @@ params:
   load_path: ${...checkpoint} # path to the checkpoint to load
 
   config:
-    name: ${resolve_default:Crawler,${....experiment}}
+    name: ${resolve_default:CrawlerControl,${....experiment}}
     full_experiment_name: ${.name}
     env_name: rlgpu
     device: ${....rl_device}
@@ -53,10 +53,9 @@ params:
     lr_schedule: adaptive
     kl_threshold: 0.016
     score_to_win: 20000
-    max_epochs: ${resolve_default:1000,${....max_iterations}}
+    max_epochs: ${resolve_default:500,${....max_iterations}}
     save_best_after: 50
     save_frequency: 50
-    save_onnx: True
     grad_norm: 1.0
     entropy_coef: 0.0
     truncate_grads: True
@@ -71,5 +70,5 @@ params:
 
     player:
       render: True
-      games_num: 200
+      games_num: 1000
       print_stats: True

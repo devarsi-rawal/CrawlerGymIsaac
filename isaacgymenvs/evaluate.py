@@ -29,6 +29,7 @@ def launch_rlg_hydra(cfg: DictConfig):
     from isaacgymenvs.learning import amp_network_builder
     import isaacgymenvs
     import torch
+    import pandas as pd
     from plotter import Plotter
 
     time_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -68,6 +69,8 @@ def launch_rlg_hydra(cfg: DictConfig):
             resume="allow",
             monitor_gym=True,
         )
+
+    cfg.task.eval.evaluate = True
 
     def create_env_thunk(**kwargs):
         envs = isaacgymenvs.make(
@@ -126,12 +129,197 @@ def launch_rlg_hydra(cfg: DictConfig):
     with open(os.path.join(experiment_dir, 'config.yaml'), 'w') as f:
         f.write(OmegaConf.to_yaml(cfg))
 
+    # def evaluate(player):
+    #     plot_params = {
+    #             "Title": cfg.experiment,
+    #             "Vertical": cfg.task.env.vertical,
+    #             "Magnetism": cfg.task.env.magnetism,
+    #             "Tether Force": cfg.task.env.tether,
+    #             "Noise": cfg.task.env.addNoise,
+    #             "Lin Vel Noise": cfg.task.env.linVelNoise,
+    #             "Ang Vel Noise": cfg.task.env.angVelNoise,
+    #             "Bias": cfg.task.env.addBias,
+    #             "Lin Vel Bias": cfg.task.env.linVelBias,
+    #             "Ang Vel Bias": cfg.task.env.angVelBias
+    #             }
+    #     plotter = Plotter(1, plot_params)
+    #     # lin = np.linspace(-0.2, 0.2, num=cfg.task.eval.linVelStep)                                          
+    #     # ang = np.linspace(-1, 1, num=cfg.task.eval.angVelStep)
+    #     # cmds = (np.array(np.meshgrid(lin, ang)).T).reshape(-1,2)
+    #     eval_params = player.env.eval_params
+    #     measured_lin_vels = np.empty((player.env.num_envs, 1), dtype=float) 
+    #     measured_ang_vels = np.empty((player.env.num_envs, 1), dtype=float) 
+    #
+    #     n_games = player.games_num
+    #     render = player.render_env
+    #     n_game_life = player.n_game_life
+    #     is_determenistic = player.is_determenistic
+    #     sum_rewards = 0
+    #     sum_steps = 0
+    #     sum_game_res = 0
+    #     n_games = n_games * n_game_life
+    #     games_played = 0
+    #     has_masks = False
+    #     has_masks_func = getattr(player.env, "has_action_mask", None) is not None
+    #
+    #     op_agent = getattr(player.env, "create_agent", None)
+    #     if op_agent:
+    #         agent_inited = True
+    #
+    #     if has_masks_func:
+    #         has_masks = player.env.has_action_mask()
+    #
+    #     need_init_rnn = player.is_rnn
+    #     for _ in range(1):
+    #         if games_played >= n_games:
+    #             break
+    #
+    #         # player.env.set_commands(cmds)
+    #         # print(player.env.cfg["env"]["initOrient"])
+    #         # print(player.env.cfg["env"]["swivelPosition"])
+    #         # player.env.set_swivel_pos(eval_params[:,2])
+    #         obses = player.env_reset(player.env)
+    #         batch_size = 1
+    #         batch_size = player.get_batch_size(obses, batch_size)
+    #
+    #         if need_init_rnn:
+    #             player.init_rnn()
+    #             need_init_rnn = False
+    #
+    #         cr = torch.zeros(batch_size, dtype=torch.float32)
+    #         steps = torch.zeros(batch_size, dtype=torch.float32)
+    #
+    #         print_game_res = False
+    #
+    #         for n in range(player.games_num):
+    #             if has_masks:
+    #                 masks = player.env.get_action_mask()
+    #                 action = player.get_masked_action(
+    #                     obses, masks, is_determenistic)
+    #             else:
+    #                 action = player.get_action(obses, is_determenistic)
+    #
+    #             obses, r, done, info = player.env_step(player.env, action)
+    #             cr += r
+    #             steps += 1
+    #             
+    #             if n >= 100:
+    #                 measured_lin_vels = np.hstack((measured_lin_vels, obses[:,0].detach().cpu().numpy().reshape(-1,1)))
+    #                 measured_ang_vels = np.hstack((measured_ang_vels, obses[:,1].detach().cpu().numpy().reshape(-1,1)))
+    #
+    #             if render:
+    #                 player.env.render(mode='human')
+    #                 time.sleep(player.render_sleep)
+    #
+    #             all_done_indices = done.nonzero(as_tuple=False)
+    #             done_indices = all_done_indices[::player.num_agents]
+    #             done_count = len(done_indices)
+    #             games_played += done_count
+    #
+    #             if done_count > 0:
+    #                 if player.is_rnn:
+    #                     for s in player.states:
+    #                         s[:, all_done_indices, :] = s[:,all_done_indices, :] * 0.0
+    #
+    #                 cur_rewards = cr[done_indices].sum().item()
+    #                 cur_steps = steps[done_indices].sum().item()
+    #
+    #                 cr = cr * (1.0 - done.float())
+    #                 steps = steps * (1.0 - done.float())
+    #                 sum_rewards += cur_rewards
+    #                 sum_steps += cur_steps
+    #
+    #                 game_res = 0.0
+    #                 if isinstance(info, dict):
+    #                     if 'battle_won' in info:
+    #                         print_game_res = True
+    #                         game_res = info.get('battle_won', 0.5)
+    #                     if 'scores' in info:
+    #                         print_game_res = True
+    #                         game_res = info.get('scores', 0.5)
+    #
+    #                 if player.print_stats:
+    #                     if print_game_res:
+    #                         print('reward:', cur_rewards/done_count,
+    #                               'steps:', cur_steps/done_count, 'w:', game_res)
+    #                     else:
+    #                         print('reward:', cur_rewards/done_count,
+    #                               'steps:', cur_steps/done_count)
+    #
+    #                 sum_game_res += game_res
+    #                 # if batch_size//player.num_agents == 1 or games_played >= n_games:
+    #                 #     break
+    #
+    #     print(sum_rewards)
+    #     if print_game_res:
+    #         print('av reward:', sum_rewards / games_played * n_game_life, 'av steps:', sum_steps /
+    #               games_played * n_game_life, 'winrate:', sum_game_res / games_played * n_game_life)
+    #     else:
+    #         print('av reward:', sum_rewards / games_played * n_game_life,
+    #               'av steps:', sum_steps / games_played * n_game_life)
+    #
+    #     mean_lin_vels = np.mean(measured_lin_vels, axis=1).reshape(-1, 1)
+    #     std_lin_vels = np.std(measured_lin_vels, axis=1).reshape(-1, 1)
+    #     mean_ang_vels = np.mean(measured_ang_vels, axis=1).reshape(-1, 1)
+    #     std_ang_vels = np.std(measured_ang_vels, axis=1).reshape(-1, 1)
+    #     result = np.hstack((eval_params, mean_lin_vels, mean_ang_vels, std_lin_vels, std_ang_vels))
+    #     # df = pd.DataFrame(data={"mean_lin_vels": mean_lin_vels,
+    #     #                         "std_lin_vels": std_lin_vels,
+    #     #                         "mean_ang_vels": mean_ang_vels,
+    #     #                         "std_ang_vels": std_ang_vels,
+    #     #                         "target_lin_vels": cmds[:,0],
+    #     #                         "target_ang_vels": cmds[:, 1]
+    #     #                         }) 
+    #     df = pd.DataFrame(result, columns=["tlin", "tang", "h", "s", "mlin", "mang", "stdlin", "stdang"])
+    #     logger_vars = {
+    #             "measured_lin_vel_mean": mean_lin_vels, 
+    #             "measured_lin_vel_std": std_lin_vels,
+    #             "measured_ang_vel_mean": mean_ang_vels,
+    #             "measured_ang_vel_std": std_ang_vels, 
+    #             # "target_lin_vel": cmds[:,0],
+    #             # "target_ang_vel": cmds[:,1],
+    #             "df": df,
+    #             "size": cfg.task.eval.linVelStep 
+    #             }
+    #     plotter.dump_states(logger_vars)
+    #             
+    #     # plotter.plot_eval()
+    #     # plotter.plot_error()
+
+    # headings= np.linspace(0., 2*np.pi, num=cfg.task.eval.headingStep)                                          
+    # swivels = np.linspace(-1, 1, num=cfg.task.eval.swivelStep)
+    # hs = (np.array(np.meshgrid(headings, swivels)).T).reshape(-1,2)
+    # for i in range(hs.shape[0]):
+    #     cfg.task.env.initOrient = float(hs[i, 0])
+    #     cfg.task.env.swivelPosition = float(hs[i, 1])
+    #     rlg_config_dict = omegaconf_to_dict(cfg.train)
+    #     runner = build_runner(RLGPUAlgoObserver())
+    #     runner.load(rlg_config_dict)
+    #     runner.reset()
+
+    #     player = runner.create_player()
+    #     if cfg.checkpoint is not None and cfg.checkpoint != '':
+    #         player.restore(cfg.checkpoint)
+    #     evaluate(player)
+
     def evaluate(player):
         plot_params = {
-                "title": cfg.experiment 
-        }
+                "Title": cfg.experiment,
+                "Vertical": cfg.task.env.vertical,
+                "Magnetism": cfg.task.env.magnetism,
+                "Tether Force": cfg.task.env.tether,
+                "Noise": cfg.task.env.addNoise,
+                "Lin Vel Noise": cfg.task.env.linVelNoise,
+                "Ang Vel Noise": cfg.task.env.angVelNoise,
+                "Bias": cfg.task.env.addBias,
+                "Lin Vel Bias": cfg.task.env.linVelBias,
+                "Ang Vel Bias": cfg.task.env.angVelBias
+                }
         plotter = Plotter(1, plot_params)
-        cmds = np.stack((np.arange(-0.2, 0.2, 0.4/player.env.num_envs), np.arange(-1.0, 1.0, 2.0/player.env.num_envs)), axis=1)
+        # lin = np.linspace(-0.2, 0.2, num=cfg.task.eval.linVelStep)                                          
+        # ang = np.linspace(-1, 1, num=cfg.task.eval.angVelStep)
+        # cmds = (np.array(np.meshgrid(lin, ang)).T).reshape(-1,2)
+        eval_params = player.env.eval_params
         measured_lin_vels = np.empty((player.env.num_envs, 1), dtype=float) 
         measured_ang_vels = np.empty((player.env.num_envs, 1), dtype=float) 
 
@@ -159,7 +347,10 @@ def launch_rlg_hydra(cfg: DictConfig):
             if games_played >= n_games:
                 break
 
-            player.env.set_commands(cmds)
+            # player.env.set_commands(cmds)
+            # print(player.env.cfg["env"]["initOrient"])
+            # print(player.env.cfg["env"]["swivelPosition"])
+            # player.env.set_swivel_pos(eval_params[:,2])
             obses = player.env_reset(player.env)
             batch_size = 1
             batch_size = player.get_batch_size(obses, batch_size)
@@ -182,12 +373,12 @@ def launch_rlg_hydra(cfg: DictConfig):
                     action = player.get_action(obses, is_determenistic)
 
                 obses, r, done, info = player.env_step(player.env, action)
-                print(obses[0])
                 cr += r
                 steps += 1
-
-                measured_lin_vels = np.hstack((measured_lin_vels, obses[:,0].detach().cpu().numpy().reshape(-1,1)))
-                measured_ang_vels = np.hstack((measured_ang_vels, obses[:,1].detach().cpu().numpy().reshape(-1,1)))
+                
+                if n >= 100:
+                    measured_lin_vels = np.hstack((measured_lin_vels, obses[:,0].detach().cpu().numpy().reshape(-1,1)))
+                    measured_ang_vels = np.hstack((measured_ang_vels, obses[:,1].detach().cpu().numpy().reshape(-1,1)))
 
                 if render:
                     player.env.render(mode='human')
@@ -240,23 +431,31 @@ def launch_rlg_hydra(cfg: DictConfig):
             print('av reward:', sum_rewards / games_played * n_game_life,
                   'av steps:', sum_steps / games_played * n_game_life)
 
-        mean_lin_vels = np.mean(measured_lin_vels, axis=1)
-        std_lin_vels = np.std(measured_lin_vels, axis=1)
-        mean_ang_vels = np.mean(measured_ang_vels, axis=1)
-        std_ang_vels = np.std(measured_ang_vels, axis=1)
-        
-
+        mean_lin_vels = np.mean(measured_lin_vels, axis=1).reshape(-1, 1)
+        std_lin_vels = np.std(measured_lin_vels, axis=1).reshape(-1, 1)
+        mean_ang_vels = np.mean(measured_ang_vels, axis=1).reshape(-1, 1)
+        std_ang_vels = np.std(measured_ang_vels, axis=1).reshape(-1, 1)
+        result = np.hstack((eval_params, mean_lin_vels, mean_ang_vels, std_lin_vels, std_ang_vels))
+        # df = pd.DataFrame(data={"mean_lin_vels": mean_lin_vels,
+        #                         "std_lin_vels": std_lin_vels,
+        #                         "mean_ang_vels": mean_ang_vels,
+        #                         "std_ang_vels": std_ang_vels,
+        #                         "target_lin_vels": cmds[:,0],
+        #                         "target_ang_vels": cmds[:, 1]
+        #                         }) 
+        df = pd.DataFrame(result, columns=["tlin", "tang", "h", "s", "mlin", "mang", "stdlin", "stdang"])
         logger_vars = {
                 "measured_lin_vel_mean": mean_lin_vels, 
                 "measured_lin_vel_std": std_lin_vels,
                 "measured_ang_vel_mean": mean_ang_vels,
                 "measured_ang_vel_std": std_ang_vels, 
-                "target_lin_vel": cmds[:,0],
-                "target_ang_vel": cmds[:,1]
+                # "target_lin_vel": cmds[:,0],
+                # "target_ang_vel": cmds[:,1],
+                "df": df,
+                "size": cfg.task.eval.linVelStep 
                 }
         plotter.dump_states(logger_vars)
-                
-        plotter.plot_eval()
+    
 
     player = runner.create_player()
     if cfg.checkpoint is not None and cfg.checkpoint != '':
