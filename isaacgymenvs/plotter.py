@@ -113,7 +113,7 @@ class Plotter:
         plt.show()
 
     def plot_error(self):
-        self._plot_error_all()
+        self._plot_error_ind()
 
     def _plot_error(self):
         nb_rows = 2
@@ -177,8 +177,11 @@ class Plotter:
         df = log["df"]
         headings = df["h"].unique()
         swivels = df["s"].unique()
-        for h in headings:
-            for s in swivels:
+
+        fig_lin, axs_lin = plt.subplots(len(headings), len(swivels))
+        fig_ang, axs_ang = plt.subplots(len(headings), len(swivels))
+        for i, h in enumerate(headings):
+            for j, s in enumerate(swivels):
                 self.params["Heading"] = h
                 self.params["Swivel"] = s
                 sub_df = df[(df["h"]==h) & (df["s"]==s)]
@@ -188,15 +191,16 @@ class Plotter:
                 tang= sub_df["tang"].to_numpy()
                 stdlin = sub_df["stdlin"].to_numpy()
                 stdang = sub_df["stdang"].to_numpy()
-                nb_rows = 2
-                nb_cols = 2
-                fig, axs = plt.subplots(nb_rows, nb_cols)
+                # nb_rows = 2
+                # nb_cols = 2
+                # fig_lin, axs_lin = plt.subplots(nb_rows, nb_cols)
+                # fig_ang, axs_ang = plt.subplots(nb_rows, nb_cols)
                 log= self.state_log
                 size = log["size"]
-                ticks = np.arange(size) 
-                
-                fig.suptitle(", ".join([f"{k}: {v}" for k, v in self.params.items()]), fontsize=8)
-                a = axs[0,0]
+                ticks = np.arange(size)
+
+                fig_lin.suptitle(", ".join([f"{k}: {v}" for k, v in self.params.items()]), fontsize=8)
+                a = axs_lin[0,0]
                 mat = np.abs(mlin - tlin).reshape(-1, size)
                 img = a.imshow(mat, cmap="jet")
                 a.set_xticks(ticks)
@@ -247,6 +251,104 @@ class Plotter:
                 # plt.show()
                 fig.clf()
                 plt.close()
+
+    def _plot_error_ind(self):
+        log = self.state_log
+        df = log["df"]
+        headings = df["h"].unique()
+        swivels = df["s"].unique()
+
+        fig_lin, axs_lin = plt.subplots(len(headings), len(swivels))
+        fig_ang, axs_ang = plt.subplots(len(headings), len(swivels))
+        fig_lin.suptitle("Linear Velocity Error")
+        fig_ang.suptitle("Angular Velocity Error")
+
+        pad = 5
+        for ax_lin, ax_ang, s in zip(axs_lin[0], axs_ang[0], swivels):
+            ax_lin.annotate(s, xy=(0.5, 1), xytext=(0, pad), xycoords=ax_lin.yaxis.label, textcoords='offset points', size='large', ha='center', va='baseline')
+            ax_ang.annotate(s, xy=(0.5, 1), xytext=(0, pad), xycoords=ax_ang.yaxis.label, textcoords='offset points', size='large', ha='center', va='baseline')
+
+        for ax_lin, ax_ang, h in zip(axs_lin[:, 0], axs_ang[:, 0], headings):
+            ax_lin.annotate(s, xy=(0, 0.5), xytext=(-ax_lin.yaxis.labelpad - pad, 0), xycoords=ax_lin.yaxis.label, textcoords='offset points', size='large', ha='center', va='baseline')
+            ax_ang.annotate(s, xy=(0, 0.5), xytext=(-ax_ang.yaxis.labelpad - pad, 0), xycoords=ax_ang.yaxis.label, textcoords='offset points', size='large', ha='center', va='baseline')
+ 
+        for i, h in enumerate(headings):
+            for j, s in enumerate(swivels):
+                # self.params["Heading"] = h
+                # self.params["Swivel"] = s
+                sub_df = df[(df["h"]==h) & (df["s"]==s)]
+                mlin = sub_df["mlin"].to_numpy()
+                mang= sub_df["mang"].to_numpy()
+                tlin = sub_df["tlin"].to_numpy()
+                tang= sub_df["tang"].to_numpy()
+                stdlin = sub_df["stdlin"].to_numpy()
+                stdang = sub_df["stdang"].to_numpy()
+                log = self.state_log
+                size = log["size"]
+                ticks = np.arange(size)
+
+                # fig_lin.suptitle(", ".join([f"{k}: {v}" for k, v in self.params.items()]), fontsize=8)
+                plt.figure(1)
+                a = axs_lin[i,j]
+                mat = np.abs(mlin - tlin).reshape(-1, size)
+                img = a.imshow(mat, cmap="jet")
+                a.set_xticks(ticks)
+                a.set_yticks(ticks)
+                a.set_xticklabels(np.round(np.unique(tlin), 4), rotation=45)
+                a.set_yticklabels(np.round(np.unique(tang), 4))
+                a.tick_params(axis='both', which='major', labelsize=6)
+                a.colorbar(img, ax=a)
+                # a.set_title("Linear Velocity Error")
+                a.set(xlabel='Target Linear Velocity', ylabel='Target Angular Velocity')
+                
+                a = axs_ang[i,j]
+                mat = np.abs(mang - tang).reshape(-1, size)
+                img = a.imshow(mat, cmap="jet")
+                a.set_xticks(ticks)
+                a.set_yticks(ticks)
+                a.set_xticklabels(np.round(np.unique(tlin), 4), rotation=45)
+                a.set_yticklabels(np.round(np.unique(tang), 4))
+                a.tick_params(axis='both', which='major', labelsize=6)
+                a.colorbar(img, ax=a)
+                # a.set_title("Angular Velocity Error")
+                a.set(xlabel='Target Linear Velocity', ylabel='Target Angular Velocity')
+                # a = axs[0,1]
+                #       
+                # img = a.imshow(stdlin.reshape(-1, size), cmap="jet")
+                # a.set_xticks(ticks)
+                # a.set_yticks(ticks)
+                # a.set_xticklabels(np.round(np.unique(tlin), 4), rotation=45)
+                # a.set_yticklabels(np.round(np.unique(tang), 4))
+                # a.tick_params(axis='both', which='major', labelsize=6)
+                # plt.colorbar(img, ax=a)
+                # a.set_title("Linear Velocity StDev")
+                # a.set(xlabel='Target Linear Velocity', ylabel='Target Angular Velocity')
+                # a = axs[1,1]
+                #
+                # img = a.imshow(stdang.reshape(-1, size), cmap="jet")
+                # a.set_xticks(ticks)
+                # a.set_yticks(ticks)
+                # a.set_xticklabels(np.round(np.unique(tlin), 4), rotation=45)
+                # a.set_yticklabels(np.round(np.unique(tang), 4))
+                # a.tick_params(axis='both', which='major', labelsize=6)
+                # plt.colorbar(img, ax=a)
+                # a.set_title("Angular Velocity StDev")
+                # a.set(xlabel='Target Linear Velocity', ylabel='Target Angular Velocity')
+
+                # f_name = f'crawler_heading-{h}_swivel-{s}'
+                # plt.savefig(LOGGER_PATH + 'figs/'+ f_name + '.png')
+                # sub_df.to_csv(LOGGER_PATH + 'csv/' + f_name + '.csv')
+                # # plt.show()
+                # fig.clf()
+                # plt.close()
+        
+        fig_lin.savefig(LOGGER_PATH + 'figs/lin_error.png')
+        sub_df.to_csv(LOGGER_PATH + 'csv/lin_error.csv')
+        fig_ang.savefig(LOGGER_PATH + 'figs/ang_erro.png')
+        sub_df.to_csv(LOGGER_PATH + 'csv/ang_error.csv')
+        plt.show()
+        # fig.clf()
+        plt.close()
 
     def __del__(self):
         if self.plot_process is not None:

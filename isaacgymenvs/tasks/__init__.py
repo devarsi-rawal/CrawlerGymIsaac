@@ -34,6 +34,7 @@ from .ball_balance import BallBalance
 from .cartpole import Cartpole 
 from .crawler import Crawler
 from .crawler_control import CrawlerControl
+from .crawler_eval import CrawlerEval
 from .factory.factory_task_gears import FactoryTaskGears
 from .factory.factory_task_insertion import FactoryTaskInsertion
 from .factory.factory_task_nut_bolt_pick import FactoryTaskNutBoltPick
@@ -59,6 +60,7 @@ isaacgym_task_map = {
     "Cartpole": Cartpole,
     "Crawler": Crawler,
     "CrawlerControl": CrawlerControl,
+    "CrawlerEval": CrawlerEval,
     "FactoryTaskGears": FactoryTaskGears,
     "FactoryTaskInsertion": FactoryTaskInsertion,
     "FactoryTaskNutBoltPick": FactoryTaskNutBoltPick,

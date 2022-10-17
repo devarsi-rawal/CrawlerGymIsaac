@@ -343,119 +343,138 @@ def launch_rlg_hydra(cfg: DictConfig):
             has_masks = player.env.has_action_mask()
 
         need_init_rnn = player.is_rnn
-        for _ in range(1):
-            if games_played >= n_games:
-                break
 
-            # player.env.set_commands(cmds)
-            # print(player.env.cfg["env"]["initOrient"])
-            # print(player.env.cfg["env"]["swivelPosition"])
-            # player.env.set_swivel_pos(eval_params[:,2])
-            obses = player.env_reset(player.env)
-            batch_size = 1
-            batch_size = player.get_batch_size(obses, batch_size)
+        lin_vel_step = 3 
+        ang_vel_step = 3 
+        lin = np.linspace(-0.2, 0.2, num=lin_vel_step)                                          
+        ang = np.linspace(-1, 1, num=ang_vel_step)
+        df = pd.DataFrame([], columns=["tlin", "tang", "h", "s", "mlin", "mang", "stdlin", "stdang"])
+        for v in lin:
+            for w in ang:
+                print(f"Evaluating linear velocity: {v}, angular velocity: {w}")
+                measured_lin_vels = np.empty((player.env.num_envs, 1), dtype=float) 
+                measured_ang_vels = np.empty((player.env.num_envs, 1), dtype=float) 
+                env_ids = isaacgym.torch_utils.to_torch(np.arange(player.env.num_envs), device=player.env.device, requires_grad=False)
+                player.env.reset_idx(env_ids)
+                obses = player.env_reset(player.env)
+                # print(obses)
+                cmds = np.tile([v, w], (player.env.num_envs, 1))
+                player.env.set_commands(cmds)
 
-            if need_init_rnn:
-                player.init_rnn()
-                need_init_rnn = False
+                batch_size = 1
+                batch_size = player.get_batch_size(obses, batch_size)
 
-            cr = torch.zeros(batch_size, dtype=torch.float32)
-            steps = torch.zeros(batch_size, dtype=torch.float32)
+                if need_init_rnn:
+                    player.init_rnn()
+                    need_init_rnn = False
 
-            print_game_res = False
+                cr = torch.zeros(batch_size, dtype=torch.float32)
+                steps = torch.zeros(batch_size, dtype=torch.float32)
 
-            for n in range(player.games_num):
-                if has_masks:
-                    masks = player.env.get_action_mask()
-                    action = player.get_masked_action(
-                        obses, masks, is_determenistic)
-                else:
-                    action = player.get_action(obses, is_determenistic)
+                print_game_res = False
 
-                obses, r, done, info = player.env_step(player.env, action)
-                cr += r
-                steps += 1
+                for n in range(player.games_num):
+                    if has_masks:
+                        masks = player.env.get_action_mask()
+                        action = player.get_masked_action(
+                            obses, masks, is_determenistic)
+                    else:
+                        action = player.get_action(obses, is_determenistic)
+
+                    # import pdb
+                    # pdb.set_trace()
+                    obses, r, done, info = player.env_step(player.env, action)
+                    cr += r
+                    steps += 1
+                    
+                    if n >= 100:
+                        measured_lin_vels = np.hstack((measured_lin_vels, obses[:,0].detach().cpu().numpy().reshape(-1,1)))
+                        measured_ang_vels = np.hstack((measured_ang_vels, obses[:,1].detach().cpu().numpy().reshape(-1,1)))
+
+                    if render:
+                        player.env.render(mode='human')
+                        time.sleep(player.render_sleep)
+
+                    all_done_indices = done.nonzero(as_tuple=False)
+                    done_indices = all_done_indices[::player.num_agents]
+                    done_count = len(done_indices)
+                    games_played += done_count
+
+                    if done_count > 0:
+                        if player.is_rnn:
+                            for s in player.states:
+                                s[:, all_done_indices, :] = s[:,all_done_indices, :] * 0.0
+
+                        cur_rewards = cr[done_indices].sum().item()
+                        cur_steps = steps[done_indices].sum().item()
+
+                        cr = cr * (1.0 - done.float())
+                        steps = steps * (1.0 - done.float())
+                        sum_rewards += cur_rewards
+                        sum_steps += cur_steps
+
+                        game_res = 0.0
+                        if isinstance(info, dict):
+                            if 'battle_won' in info:
+                                print_game_res = True
+                                game_res = info.get('battle_won', 0.5)
+                            if 'scores' in info:
+                                print_game_res = True
+                                game_res = info.get('scores', 0.5)
+
+                        if player.print_stats:
+                            if print_game_res:
+                                print('reward:', cur_rewards/done_count,
+                                      'steps:', cur_steps/done_count, 'w:', game_res)
+                            else:
+                                print('reward:', cur_rewards/done_count,
+                                      'steps:', cur_steps/done_count)
+
+                        sum_game_res += game_res
+                        # if batch_size//player.num_agents == 1 or games_played >= n_games:
+                        #     break
+                        
                 
-                if n >= 100:
-                    measured_lin_vels = np.hstack((measured_lin_vels, obses[:,0].detach().cpu().numpy().reshape(-1,1)))
-                    measured_ang_vels = np.hstack((measured_ang_vels, obses[:,1].detach().cpu().numpy().reshape(-1,1)))
+                mean_lin_vels = np.mean(measured_lin_vels, axis=1)
+                std_lin_vels = np.std(measured_lin_vels, axis=1)
+                mean_ang_vels = np.mean(measured_ang_vels, axis=1)
+                std_ang_vels = np.std(measured_ang_vels, axis=1)
 
-                if render:
-                    player.env.render(mode='human')
-                    time.sleep(player.render_sleep)
+                # print(cmds[:,0].shape)
+                # print(eval_params[:,0].shape)
+                # print(mean_lin_vels.shape)
+                # print(mean_ang_vels.shape)
+                # print(std_lin_vels.shape)
+                # print(std_ang_vels.shape)
+                # print(cmds[:,0])
+                # print(eval_params[:,0])
+                # print(mean_lin_vels)
+                # print(mean_ang_vels)
+                # print(std_lin_vels)
+                # print(std_ang_vels)
+                temp_df = pd.DataFrame(data={
+                    'tlin': cmds[:, 0],
+                    'tang': cmds[:, 1],
+                    'h': eval_params[:, 0],
+                    's': eval_params[:, 1],
+                    'mlin': mean_lin_vels,
+                    'mang': mean_ang_vels,
+                    'stdlin': std_lin_vels,
+                    'stdang': std_ang_vels
+                    })
 
-                all_done_indices = done.nonzero(as_tuple=False)
-                done_indices = all_done_indices[::player.num_agents]
-                done_count = len(done_indices)
-                games_played += done_count
+                df = pd.concat([df, temp_df], ignore_index=True)
 
-                if done_count > 0:
-                    if player.is_rnn:
-                        for s in player.states:
-                            s[:, all_done_indices, :] = s[:,all_done_indices, :] * 0.0
-
-                    cur_rewards = cr[done_indices].sum().item()
-                    cur_steps = steps[done_indices].sum().item()
-
-                    cr = cr * (1.0 - done.float())
-                    steps = steps * (1.0 - done.float())
-                    sum_rewards += cur_rewards
-                    sum_steps += cur_steps
-
-                    game_res = 0.0
-                    if isinstance(info, dict):
-                        if 'battle_won' in info:
-                            print_game_res = True
-                            game_res = info.get('battle_won', 0.5)
-                        if 'scores' in info:
-                            print_game_res = True
-                            game_res = info.get('scores', 0.5)
-
-                    if player.print_stats:
-                        if print_game_res:
-                            print('reward:', cur_rewards/done_count,
-                                  'steps:', cur_steps/done_count, 'w:', game_res)
-                        else:
-                            print('reward:', cur_rewards/done_count,
-                                  'steps:', cur_steps/done_count)
-
-                    sum_game_res += game_res
-                    # if batch_size//player.num_agents == 1 or games_played >= n_games:
-                    #     break
-
-        print(sum_rewards)
-        if print_game_res:
-            print('av reward:', sum_rewards / games_played * n_game_life, 'av steps:', sum_steps /
-                  games_played * n_game_life, 'winrate:', sum_game_res / games_played * n_game_life)
-        else:
-            print('av reward:', sum_rewards / games_played * n_game_life,
-                  'av steps:', sum_steps / games_played * n_game_life)
-
-        mean_lin_vels = np.mean(measured_lin_vels, axis=1).reshape(-1, 1)
-        std_lin_vels = np.std(measured_lin_vels, axis=1).reshape(-1, 1)
-        mean_ang_vels = np.mean(measured_ang_vels, axis=1).reshape(-1, 1)
-        std_ang_vels = np.std(measured_ang_vels, axis=1).reshape(-1, 1)
-        result = np.hstack((eval_params, mean_lin_vels, mean_ang_vels, std_lin_vels, std_ang_vels))
-        # df = pd.DataFrame(data={"mean_lin_vels": mean_lin_vels,
-        #                         "std_lin_vels": std_lin_vels,
-        #                         "mean_ang_vels": mean_ang_vels,
-        #                         "std_ang_vels": std_ang_vels,
-        #                         "target_lin_vels": cmds[:,0],
-        #                         "target_ang_vels": cmds[:, 1]
-        #                         }) 
-        df = pd.DataFrame(result, columns=["tlin", "tang", "h", "s", "mlin", "mang", "stdlin", "stdang"])
         logger_vars = {
-                "measured_lin_vel_mean": mean_lin_vels, 
-                "measured_lin_vel_std": std_lin_vels,
-                "measured_ang_vel_mean": mean_ang_vels,
-                "measured_ang_vel_std": std_ang_vels, 
-                # "target_lin_vel": cmds[:,0],
-                # "target_ang_vel": cmds[:,1],
                 "df": df,
-                "size": cfg.task.eval.linVelStep 
+                "size": lin_vel_step
                 }
-        plotter.dump_states(logger_vars)
     
+        print(df)
+        plotter.dump_states(logger_vars)
+
+        # plotter.plot_eval()
+        plotter.plot_error()
 
     player = runner.create_player()
     if cfg.checkpoint is not None and cfg.checkpoint != '':
