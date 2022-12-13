@@ -44,7 +44,8 @@ import torch
 from gym import logger
 from isaacgym import gymapi, gymtorch, torch_utils
 from isaacgymenvs.tasks.base.vec_task import VecTask
-import isaacgymenvs.tasks.factory.factory_control as fc
+# import isaacgymenvs.tasks.factory.factory_control as fc
+from isaacgymenvs.tasks.factory import factory_control as fc
 from isaacgymenvs.tasks.factory.factory_schema_class_base import FactoryABCBase
 from isaacgymenvs.tasks.factory.factory_schema_config_base import FactorySchemaConfigBase
 

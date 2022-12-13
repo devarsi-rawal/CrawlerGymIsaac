@@ -9,15 +9,10 @@ from omegaconf import DictConfig, OmegaConf
 from hydra.utils import to_absolute_path
 import gym
 import numpy as np
-import argparse
 
 from isaacgymenvs.utils.reformat import omegaconf_to_dict, print_dict
 
 from isaacgymenvs.utils.utils import set_np_formatting, set_seed
-
-# parser = argparse.ArgumentParser()
-# parser.add_argument("--cfg_path", type=str, default="./cfg", help="Config file path")
-# args = parser.parse_args()
 
 ## OmegaConf & Hydra Config
 
@@ -76,7 +71,6 @@ def launch_rlg_hydra(cfg: DictConfig):
         )
 
     cfg.task.eval.evaluate = True
-    cfg.task.env.numEnvs = cfg.task.eval.linVelStep * cfg.task.eval.angVelStep
 
     def create_env_thunk(**kwargs):
         envs = isaacgymenvs.make(
@@ -149,6 +143,12 @@ def launch_rlg_hydra(cfg: DictConfig):
                 "Ang Vel Bias": cfg.task.env.angVelBias
                 }
         plotter = Plotter(1, plot_params)
+        # lin = np.linspace(-0.2, 0.2, num=cfg.task.eval.linVelStep)                                          
+        # ang = np.linspace(-1, 1, num=cfg.task.eval.angVelStep)
+        # cmds = (np.array(np.meshgrid(lin, ang)).T).reshape(-1,2)
+        eval_params = player.env.eval_params
+        # measured_lin_vels = np.empty((player.env.num_envs, 1), dtype=np.double) 
+        # measured_ang_vels = np.empty((player.env.num_envs, 1), dtype=np.double) 
 
         n_games = player.games_num
         render = player.render_env
@@ -171,32 +171,22 @@ def launch_rlg_hydra(cfg: DictConfig):
 
         need_init_rnn = player.is_rnn
 
-        lin = np.linspace(-0.2, 0.2, num=cfg.task.eval.linVelStep)                                          
-        ang = np.linspace(-1, 1, num=cfg.task.eval.angVelStep)
-
-        eval_params = (np.array(np.meshgrid(lin, ang)).T).reshape(-1, 2)
-
-        heading = np.linspace(0, 2*np.pi, num=cfg.task.eval.headingStep)
-        swivel = np.linspace(0, 2*np.pi, num=cfg.task.eval.swivelStep)
-        # heading = [0.0]
-        # swivel = [0.0]
-
+        lin_vel_step = 21 
+        ang_vel_step = 21 
+        lin = np.linspace(-0.2, 0.2, num=lin_vel_step)                                          
+        ang = np.linspace(-1, 1, num=ang_vel_step)
         df = pd.DataFrame([], columns=["tlin", "tang", "h", "s", "mlin", "mang", "stdlin", "stdang"])
-        for h in heading:
-            for s in swivel:
-                # print(f"Evaluating linear velocity: {v}, angular velocity: {w}")
-                print(f"Evaluating heading: {round(h, 4)}, swivel: {round(s, 4)}")
+        for v in lin:
+            for w in ang:
+                print(f"Evaluating linear velocity: {v}, angular velocity: {w}")
                 measured_lin_vels = np.empty((player.env.num_envs, 0), dtype=np.double) 
                 measured_ang_vels = np.empty((player.env.num_envs, 0), dtype=np.double) 
                 env_ids = isaacgym.torch_utils.to_torch(np.arange(player.env.num_envs), device=player.env.device, requires_grad=False)
-                h_arr = np.zeros(player.env.num_envs) + h
-                s_arr = np.zeros(player.env.num_envs) + s
-                player.env.set_heading(h_arr)
-                player.env.set_swivel_pos(s_arr)
-                cmds = eval_params 
-                player.env.set_commands(cmds)
                 player.env.reset_idx(env_ids)
                 obses = player.env_reset(player.env)
+                # print(obses)
+                cmds = np.tile([v, w], (player.env.num_envs, 1))
+                player.env.set_commands(cmds)
 
                 batch_size = 1
                 batch_size = player.get_batch_size(obses, batch_size)
@@ -217,10 +207,6 @@ def launch_rlg_hydra(cfg: DictConfig):
                             obses, masks, is_determenistic)
                     else:
                         action = player.get_action(obses, is_determenistic)
-                        # lw_vel = (cmds[:,0] - 0.07 * cmds[:,1]) / 0.025 / 10.
-                        # rw_vel = (cmds[:,0] + 0.07 * cmds[:,1]) / 0.025 / 10.
-                        # action[:,0] = torch.tensor(lw_vel, device=cfg.rl_device)
-                        # action[:,1] = torch.tensor(rw_vel, device=cfg.rl_device)
 
                     # import pdb
                     # pdb.set_trace()
@@ -280,27 +266,35 @@ def launch_rlg_hydra(cfg: DictConfig):
                 std_lin_vels = np.std(measured_lin_vels, axis=1)
                 mean_ang_vels = np.mean(measured_ang_vels, axis=1)
                 std_ang_vels = np.std(measured_ang_vels, axis=1)
-                rmse_lin = np.mean((measured_lin_vels - cmds[:, 0].reshape(-1, 1))**2, axis=1) ** 0.5
-                rmse_ang = np.mean((measured_ang_vels - cmds[:, 1].reshape(-1, 1))**2, axis=1) ** 0.5
 
+                # print(cmds[:,0].shape)
+                # print(eval_params[:,0].shape)
+                # print(mean_lin_vels.shape)
+                # print(mean_ang_vels.shape)
+                # print(std_lin_vels.shape)
+                # print(std_ang_vels.shape)
+                # print(cmds[:,0])
+                # print(eval_params[:,0])
+                # print(mean_lin_vels)
+                # print(mean_ang_vels)
+                # print(std_lin_vels)
+                # print(std_ang_vels)
                 temp_df = pd.DataFrame(data={
                     'tlin': cmds[:, 0],
                     'tang': cmds[:, 1],
-                    'h': h_arr,
-                    's': s_arr,
+                    'h': eval_params[:, 0],
+                    's': eval_params[:, 1],
                     'mlin': mean_lin_vels,
                     'mang': mean_ang_vels,
                     'stdlin': std_lin_vels,
-                    'stdang': std_ang_vels,
-                    'rmse_lin': rmse_lin,
-                    'rmse_ang': rmse_ang
+                    'stdang': std_ang_vels
                     })
 
                 df = pd.concat([df, temp_df], ignore_index=True)
 
         logger_vars = {
                 "df": df,
-                "size": cfg.task.eval.linVelStep,
+                "size": lin_vel_step,
                 "experiment_dir": experiment_dir
                 }
     

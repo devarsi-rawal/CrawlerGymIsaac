@@ -35,7 +35,7 @@ params:
   load_path: ${...checkpoint} # path to the checkpoint to load
 
   config:
-    name: ${resolve_default:Crawler,${....experiment}}
+    name: ${resolve_default:Turtlebot,${....experiment}}
     full_experiment_name: ${.name}
     env_name: rlgpu
     device: ${....rl_device}
@@ -52,8 +52,8 @@ params:
     learning_rate: 1e-3
     lr_schedule: adaptive
     kl_threshold: 0.016
-    score_to_win: 20000
-    max_epochs: ${resolve_default:500,${....max_iterations}}
+    score_to_win: 2000000
+    max_epochs: ${resolve_default:1000,${....max_iterations}}
     save_best_after: 50
     save_frequency: 50
     save_onnx: True
@@ -63,7 +63,6 @@ params:
     e_clip: 0.2
     horizon_length: 32 # 16
     minibatch_size: 32768 # 16384
-    # minibatch_size: 512 # 16384
     mini_epochs: 8
     critic_coef: 2
     clip_value: True

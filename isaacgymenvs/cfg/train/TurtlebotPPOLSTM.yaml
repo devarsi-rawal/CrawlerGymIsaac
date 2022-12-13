@@ -1,5 +1,5 @@
 defaults:
-  - CrawlerPPO
+  - TurtlebotPPO
   - _self_
 
 params:

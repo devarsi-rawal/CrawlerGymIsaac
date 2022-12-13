@@ -208,7 +208,6 @@ def launch_rlg_hydra(cfg: DictConfig):
         adapter = flatten.TracingAdapter(ModelWrapper(agent.model), inputs, allow_non_tensor=True)
         traced = torch.jit.trace(adapter, adapter.flattened_inputs, check_trace=False)
         flattened_outputs = traced(*adapter.flattened_inputs)
-        print(flattened_outputs)
 
     torch.onnx.export(traced, *adapter.flattened_inputs, os.path.join(agent.nn_dir, agent.config["name"] + ".onnx"),
                       verbose=True, export_params=True, do_constant_folding=True,

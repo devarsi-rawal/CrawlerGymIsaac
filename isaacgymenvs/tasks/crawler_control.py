@@ -140,7 +140,7 @@ class CrawlerControl(VecTask):
 
         asset_options = gymapi.AssetOptions()
         asset_options.fix_base_link = False
-        asset_options.replace_cylinder_with_capsule = True
+        asset_options.replace_cylinder_with_capsule = True 
         asset_options.disable_gravity = False
         asset_options.armature = 0.001
         crawler_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
@@ -233,6 +233,8 @@ class CrawlerControl(VecTask):
             self.obs_buf[env_ids, 0] += torch.sin(self.last_step*self.bias_period*torch.ones(env_ids.size, dtype=torch.float, device=self.device_id, requires_grad=False)) * self.lin_vel_bias
             self.obs_buf[env_ids, 1] += torch.sin(self.last_step*self.bias_period*torch.ones(env_ids.size, dtype=torch.float, device=self.device_id, requires_grad=False)) * self.ang_vel_bias
 
+        print(self.obs_buf)
+
     def get_observations(self):
         return self.obs_buf
 
@@ -256,6 +258,7 @@ class CrawlerControl(VecTask):
         # TODO: Add control dof numbers to cfg file
         # actions_tensor = torch.zeros(self.num_envs * self.num_dof, device=self.device, dtype=torch.float)
         # TODO: Add action_scale to task cfg file
+        print(actions)
         _actions = actions.to(self.device) * 10.0 
          
         actions_tensor = torch.zeros(self.num_envs * self.num_dof, device=self.device, dtype=torch.float)
@@ -326,8 +329,8 @@ class CrawlerControl(VecTask):
             magnet_forces[:, 5, 0] = -torch.sin(theta_rw) * self.magnetism
             magnet_forces[:, 5, 2] = torch.cos(theta_rw) * self.magnetism
             theta_cw = self.dof_state[self.cw_dof::self.num_dof, 0]
-            magnet_forces[:, 3, 0] = -torch.sin(theta_cw) * self.magnetism 
-            magnet_forces[:, 3, 2] = torch.cos(theta_cw) * self.magnetism
+            magnet_forces[:, 3, 0] = -torch.sin(theta_cw) * self.magnetism * 0.1
+            magnet_forces[:, 3, 2] = torch.cos(theta_cw) * self.magnetism * 0.1 
             # self.gym.apply_rigid_body_force_at_pos_tensors(self.sim, gymtorch.unwrap_tensor(forces), None, gymapi.LOCAL_SPACE)
         else:
             force_dir = 1 if self.vertical else 2
@@ -367,12 +370,12 @@ class CrawlerControl(VecTask):
         self.gym.set_dof_state_tensor(self.sim, gymtorch.unwrap_tensor(init_dof_pos))
 
 @torch.jit.script
-def compute_crawler_reward(measured_lin_vel, measured_ang_vel, target_lin_vel, target_ang_vel):
+def compute_crawler_reward_old(measured_lin_vel, measured_ang_vel, target_lin_vel, target_ang_vel):
     # type: (Tensor, Tensor, Tensor, Tensor) -> Tensor
 
     lm = target_lin_vel != 0
     lin_vel_error = torch.empty_like(target_lin_vel)
-    lin_vel_error[lm] = 1 - torch.abs((target_lin_vel[lm] - measured_lin_vel[lm])/target_lin_vel[lm])
+    lin_vel_error[lm] = 1 - torch.abs((target_lin_vel[lm] - measured_lin_vel[lm]))/torch.abs(target_lin_vel[lm])
     lin_vel_error[~lm] = 1 - torch.abs(target_lin_vel[~lm] - measured_lin_vel[~lm])
     am = target_ang_vel != 0
     ang_vel_error = torch.empty_like(target_ang_vel)
@@ -384,9 +387,19 @@ def compute_crawler_reward(measured_lin_vel, measured_ang_vel, target_lin_vel, t
     return reward
 
 @torch.jit.script
+def compute_crawler_reward(measured_lin_vel, measured_ang_vel, target_lin_vel, target_ang_vel):
+    # type: (Tensor, Tensor, Tensor, Tensor) -> Tensor
+    lin_vel_error = 1 - torch.abs(target_lin_vel - measured_lin_vel)
+    ang_vel_error = 1 - torch.abs(target_ang_vel - measured_ang_vel)
+    reward = lin_vel_error + ang_vel_error
+    return reward
+
+@torch.jit.script
 def compute_crawler_reward_exp(measured_lin_vel, measured_ang_vel, target_lin_vel, target_ang_vel, lin_vel_var, ang_vel_var):
     # type: (Tensor, Tensor, Tensor, Tensor, float, float) -> Tensor
     lin_vel_error = torch.square(target_lin_vel - measured_lin_vel)
     ang_vel_error = torch.square(target_ang_vel - measured_ang_vel)
-    reward = torch.exp(-lin_vel_error/lin_vel_var) + torch.exp(-ang_vel_error/ang_vel_var)
+    lin_reward = 0.9 * torch.exp(-lin_vel_error/lin_vel_var) + 0.1 * torch.exp(-lin_vel_error/(100 * lin_vel_var))
+    ang_reward = 0.9 * torch.exp(-ang_vel_error/ang_vel_var) + 0.1 * torch.exp(-ang_vel_error/(100 * ang_vel_var))
+    reward = lin_reward * ang_reward
     return reward

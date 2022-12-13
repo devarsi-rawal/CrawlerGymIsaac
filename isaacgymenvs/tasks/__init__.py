@@ -35,11 +35,11 @@ from .cartpole import Cartpole
 from .crawler import Crawler
 from .crawler_control import CrawlerControl
 from .crawler_eval import CrawlerEval
-from .factory.factory_task_gears import FactoryTaskGears
-from .factory.factory_task_insertion import FactoryTaskInsertion
-from .factory.factory_task_nut_bolt_pick import FactoryTaskNutBoltPick
-from .factory.factory_task_nut_bolt_place import FactoryTaskNutBoltPlace
-from .factory.factory_task_nut_bolt_screw import FactoryTaskNutBoltScrew
+# from .factory.factory_task_gears import FactoryTaskGears
+# from .factory.factory_task_insertion import FactoryTaskInsertion
+# from .factory.factory_task_nut_bolt_pick import FactoryTaskNutBoltPick
+# from .factory.factory_task_nut_bolt_place import FactoryTaskNutBoltPlace
+# from .factory.factory_task_nut_bolt_screw import FactoryTaskNutBoltScrew
 from .franka_cabinet import FrankaCabinet
 from .franka_cube_stack import FrankaCubeStack
 from .humanoid import Humanoid
@@ -49,6 +49,7 @@ from .quadcopter import Quadcopter
 from .shadow_hand import ShadowHand
 from .allegro_hand import AllegroHand
 from .trifinger import Trifinger
+from .turtlebot import Turtlebot
 
 # Mappings from strings to environments
 isaacgym_task_map = {
@@ -61,11 +62,11 @@ isaacgym_task_map = {
     "Crawler": Crawler,
     "CrawlerControl": CrawlerControl,
     "CrawlerEval": CrawlerEval,
-    "FactoryTaskGears": FactoryTaskGears,
-    "FactoryTaskInsertion": FactoryTaskInsertion,
-    "FactoryTaskNutBoltPick": FactoryTaskNutBoltPick,
-    "FactoryTaskNutBoltPlace": FactoryTaskNutBoltPlace,
-    "FactoryTaskNutBoltScrew": FactoryTaskNutBoltScrew,
+    # "FactoryTaskGears": FactoryTaskGears,
+    # "FactoryTaskInsertion": FactoryTaskInsertion,
+    # "FactoryTaskNutBoltPick": FactoryTaskNutBoltPick,
+    # "FactoryTaskNutBoltPlace": FactoryTaskNutBoltPlace,
+    # "FactoryTaskNutBoltScrew": FactoryTaskNutBoltScrew,
     "FrankaCabinet": FrankaCabinet,
     "FrankaCubeStack": FrankaCubeStack,
     "Humanoid": Humanoid,
@@ -74,4 +75,5 @@ isaacgym_task_map = {
     "Quadcopter": Quadcopter,
     "ShadowHand": ShadowHand,
     "Trifinger": Trifinger,
+    "Turtlebot": Turtlebot
 }

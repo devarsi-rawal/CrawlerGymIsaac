@@ -3,7 +3,7 @@ import os
 import torch
 
 from isaacgym import gymutil, gymtorch, gymapi
-from isaacgym.torch_utils import quat_rotate_inverse, normalize
+from isaacgym.torch_utils import to_torch, quat_rotate, quat_rotate_inverse, normalize, get_euler_xyz, get_axis_params
 from .base.vec_task import VecTask
 
 LIN_VEL_SIGMA = 0.01
@@ -23,18 +23,6 @@ class Crawler(VecTask):
         self.cfg["env"]["numObservations"] = 4
         self.cfg["env"]["numActions"] = 2
 
-
-        self.evaluate = self.cfg["eval"]["evaluate"]
-
-        if self.evaluate:
-            lin = np.linspace(-0.2, 0.2, num=self.cfg["eval"]["linVelStep"])                                          
-            ang = np.linspace(-1, 1, num=self.cfg["eval"]["angVelStep"])
-            h = np.linspace(0, 2*np.pi, num=self.cfg["eval"]["headingStep"])
-            s = np.linspace(0, 2*np.pi, num=self.cfg["eval"]["swivelStep"])
-            self.eval_params = (np.array(np.meshgrid(lin, ang, h, s)).T).reshape(-1,4)
-            cmds = self.eval_params[:, :2]
-            self.headings = self.eval_params[:, 2]
-            self.swivels = self.eval_params[:, 3]
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id, headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
 
         self.gym.viewer_camera_look_at(
@@ -47,6 +35,7 @@ class Crawler(VecTask):
 
         actor_root_state = self.gym.acquire_actor_root_state_tensor(self.sim)
         self.root_states = gymtorch.wrap_tensor(actor_root_state)
+        self.base_pos = self.root_states[:, 0:3]
         self.base_quat = self.root_states[:, 3:7]
         self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
         self.base_ang_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
@@ -54,9 +43,13 @@ class Crawler(VecTask):
         _rb_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
         rb_states = gymtorch.wrap_tensor(_rb_tensor)
         self.rb_positions = rb_states[:, 0:3].view(self.num_envs, self.num_bodies, 3)
+        # init_rb_positions = self.rb_positions.clone()
         self.rb_orients = rb_states[:, 3:7].view(self.num_envs, self.num_bodies, 4)
 
-        self.tether_base = torch.tensor([0, 0., 0], dtype=torch.float, requires_grad=False, device=self.device_id).repeat(self.num_envs, self.num_bodies, 1)
+        # self.tether_base = torch.tensor([0, 0., 0], dtype=torch.float, requires_grad=False, device=self.device_id).repeat(self.num_envs, self.num_bodies, 1)
+        self.tether_base = self.rb_positions.clone()
+
+        self.gravity_vec = to_torch(get_axis_params(-1., self.up_axis_idx), device=self.device).repeat((self.num_envs, 1))
         
         self.magnetism = -self.cfg["env"]["magnetism"]
         self.tether = self.cfg["env"]["tether"]
@@ -70,35 +63,25 @@ class Crawler(VecTask):
         self.lin_vel_var = self.cfg["env"]["linVelVariance"]
         self.ang_vel_var = self.cfg["env"]["angVelVariance"]
 
-         
-        # init_dof_pos = self.dof_state.clone() 
-        # if self.evaluate:
-        #     init_dof_pos[self.cwb_dof::self.num_dof, 0] = torch.ones(self.num_envs, dtype=torch.float, device=self.device_id, requires_grad=False) * self.cfg["env"]["swivelPosition"]
-        # else:
-        #     init_dof_pos[self.cwb_dof::self.num_dof, 0] = torch.rand(self.num_envs, dtype=torch.float, device=self.device_id, requires_grad=False) * 2 * np.pi 
-        # self.gym.set_dof_state_tensor(self.sim, gymtorch.unwrap_tensor(init_dof_pos))
-
         # TODO: Add 2 (# of commands) to cfg task file
         self.commands = torch.zeros(self.num_envs, 2, dtype=torch.float, device=self.device_id, requires_grad=False) 
         self._resample_commands()
 
-        if self.evaluate:
-            self.set_commands(cmds)
-            self.set_swivel_pos(self.swivels)
-        else:
-            init_dof_pos = self.dof_state.clone() 
-            init_dof_pos[self.cwb_dof::self.num_dof, 0] = torch.randn(self.num_envs, dtype=torch.float, device=self.device_id, requires_grad=False) * 2 * np.pi 
-            self.gym.set_dof_state_tensor(self.sim, gymtorch.unwrap_tensor(init_dof_pos))
+        init_dof_pos = self.dof_state.clone() 
+        init_dof_pos[self.cwb_dof::self.num_dof, 0] = torch.randn(self.num_envs, dtype=torch.float, device=self.device_id, requires_grad=False) * 2 * np.pi 
+        self.gym.set_dof_state_tensor(self.sim, gymtorch.unwrap_tensor(init_dof_pos))
         
 
     def create_sim(self):
         # set the up axis to be z-up given that assets are y-up by default
+        self.up_axis_idx = 2
         self.up_axis = self.cfg["sim"]["up_axis"]
         self.vertical = self.cfg["env"]["vertical"]
         self.sim = super().create_sim(self.device_id, self.graphics_device_id, self.physics_engine, self.sim_params)
         self.dt = self.sim_params.dt
         self._create_ground_plane()
-        self._create_envs(self.num_envs, self.cfg["env"]['envSpacing'], self.num_envs)
+        num_envs_per_row = self.num_envs if self.vertical else int(np.sqrt(self.num_envs))
+        self._create_envs(self.num_envs, self.cfg["env"]['envSpacing'], num_envs_per_row)
 
     def _create_ground_plane(self):
         plane_params = gymapi.PlaneParams()
@@ -110,8 +93,8 @@ class Crawler(VecTask):
 
     def _create_envs(self, num_envs, spacing, num_per_row):
         # define plane on which environments are initialized
-        lower = gymapi.Vec3(-spacing, 0.0, -spacing) if self.vertical else gymapi.Vec3(0.5 * -spacing, -spacing, 0.0)
-        upper = gymapi.Vec3(spacing, 0.0, spacing) if self.vertical else gymapi.Vec3(0.5 * spacing, spacing, spacing) 
+        lower = gymapi.Vec3(-spacing, 0.0, -spacing) if self.vertical else gymapi.Vec3(-spacing, -spacing, 0.0)
+        upper = gymapi.Vec3(spacing, 0.0, spacing) if self.vertical else gymapi.Vec3(spacing, spacing, spacing) 
 
         asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
         asset_file = "urdf/crawler/crawler_caster.urdf"
@@ -143,29 +126,29 @@ class Crawler(VecTask):
         dof_names = self.gym.get_asset_dof_names(crawler_asset)
         print('dof_names', dof_names)
 
-        pose = gymapi.Transform()
-        if self.vertical:
-            pose.p.y = 0.05
-            pose.r = gymapi.Quat.from_euler_zyx(-np.pi/2, -np.pi/2, 0)
-        else:
-            pose.p.z = 0.05
-            pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
+        # pose = gymapi.Transform()
+        # if self.vertical:
+        #     pose.p.y = 0.05
+        #     pose.r = gymapi.Quat.from_euler_zyx(-np.pi/2, -np.pi/2, 0)
+        # else:
+        #     pose.p.z = 0.025
+        #     pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 
         self.crawler_handles = []
         self.envs = []
         for i in range(self.num_envs):
             # create env instance
             pose = gymapi.Transform()
-            if self.evaluate:
-                heading = self.headings[i]
-            else:
-                heading = np.random.rand() * 2 * np.pi
+            # if self.evaluate:
+            #     heading = self.headings[i]
+            # else:
+            heading = np.random.rand() * 2 * np.pi
 
             if self.vertical:
                 pose.p.y = 0.05
                 pose.r = gymapi.Quat.from_euler_zyx(-np.pi/2, heading, 0)
             else:
-                pose.p.z = 0.05
+                pose.p.z = 0.025
                 pose.r = gymapi.Quat.from_euler_zyx(0, 0, heading)
             env_ptr = self.gym.create_env(
                 self.sim, lower, upper, num_per_row
@@ -205,7 +188,7 @@ class Crawler(VecTask):
             )
         else:
             self.rew_buf[:] = compute_crawler_reward(
-                measured_lin_vel, measured_ang_vel, target_lin_vel, target_ang_vel
+                measured_lin_vel, measured_ang_vel, target_lin_vel, target_ang_vel, self.lin_vel_var, self.ang_vel_var
             )
 
 
@@ -215,11 +198,15 @@ class Crawler(VecTask):
 
         self.gym.refresh_dof_state_tensor(self.sim)
 
+        # projected_gravity = quat_rotate(self.base_quat, self.gravity_vec)
+
         self.obs_buf[env_ids, 0] = self.base_lin_vel[env_ids, 0].squeeze()
         self.obs_buf[env_ids, 1] = self.base_ang_vel[env_ids, 2].squeeze()
         self.obs_buf[env_ids, 2] = self.commands[env_ids, 0].squeeze()
         self.obs_buf[env_ids, 3] = self.commands[env_ids, 1].squeeze()
-        
+        # self.obs_buf[env_ids, 4:] = projected_gravity 
+        # self.obs_buf[env_ids, 4] = get_euler_xyz(self.base_quat)[env_ids, 2]
+
         if self.add_noise:
             self.obs_buf[env_ids, 0] += torch.randn(env_ids.size, dtype=torch.float, device=self.device_id, requires_grad=False) * (self.lin_vel_noise)
             self.obs_buf[env_ids, 1] += torch.randn(env_ids.size, dtype=torch.float, device=self.device_id, requires_grad=False) * (self.ang_vel_noise)
@@ -267,8 +254,14 @@ class Crawler(VecTask):
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_dof_force_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
-
-        self._apply_forces()
+        
+        if self.cfg["env"]["tetherApply"] == 0:
+            self._apply_forces()
+        elif self.cfg["env"]["tetherApply"] == 1:
+            env_ids = (self.progress_buf % 100 == 0).nonzero(as_tuple=False).flatten() 
+            self._apply_forces(env_ids)
+        else:  
+            self._apply_forces()
 
         self.base_quat = self.root_states[:, 3:7]
         self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
@@ -285,7 +278,9 @@ class Crawler(VecTask):
             env_ids = (self.progress_buf % 250 == 0).nonzero(as_tuple=False).flatten() 
             self._resample_commands(env_ids)
 
-    def _apply_forces(self):
+    def _apply_forces(self, env_ids=None):
+        if env_ids is None:
+            env_ids = np.arange(self.num_envs)
         magnet_forces = torch.zeros((self.num_envs, self.num_bodies, 3), device=self.device_id, dtype=torch.float, requires_grad=False)
         # apply magnetic force
         if self.cfg["env"]["localForce"]:
@@ -296,8 +291,8 @@ class Crawler(VecTask):
             magnet_forces[:, 5, 0] = -torch.sin(theta_rw) * self.magnetism
             magnet_forces[:, 5, 2] = torch.cos(theta_rw) * self.magnetism
             theta_cw = self.dof_state[self.cw_dof::self.num_dof, 0]
-            magnet_forces[:, 3, 0] = -torch.sin(theta_cw) * self.magnetism 
-            magnet_forces[:, 3, 2] = torch.cos(theta_cw) * self.magnetism
+            magnet_forces[:, 3, 0] = -torch.sin(theta_cw) * self.magnetism * 0.8 
+            magnet_forces[:, 3, 2] = torch.cos(theta_cw) * self.magnetism * 0.8 
             # self.gym.apply_rigid_body_force_at_pos_tensors(self.sim, gymtorch.unwrap_tensor(forces), None, gymapi.LOCAL_SPACE)
         else:
             force_dir = 1 if self.vertical else 2
@@ -308,14 +303,20 @@ class Crawler(VecTask):
         # Apply tether force
         _tether_forces = self.tether * normalize(self.tether_base - self.rb_positions)
         tether_forces = torch.zeros((self.num_envs, self.num_bodies, 3), device=self.device, dtype=torch.float, requires_grad=False)
-        tether_forces[:, 1, 2] = _tether_forces[:, 1, 2] 
+        tether_forces[env_ids, 1, 1] = _tether_forces[env_ids, 1, 1] 
 
-        final_orients = self.rb_orients[:, 1, :][:, None, :].repeat(1, self.num_bodies, 1)
+        final_orients = self.rb_orients[env_ids, 1, :][:, None, :].repeat(1, self.num_bodies, 1)
         # print("RB Orients Shape", self.rb_orients[:, 1, :].shape)
         # print("Final Orients Shape", final_orients.shape, final_orients[:, 1, :].shape)
         # print("Tether Forces Shape", _tether_forces.shape, _tether_forces[:, 1, :].shape)
-        tether_forces[:, 1, :] = quat_rotate_inverse(final_orients[:, 1, :], _tether_forces[:, 1, :])
-        forces = magnet_forces + tether_forces
+        tether_forces[env_ids, 1, :] = quat_rotate_inverse(final_orients[env_ids, 1, :], tether_forces[env_ids, 1, :])
+        # forces = magnet_forces + tether_forces
+        if self.cfg["env"]["tetherApply"] == 2:
+            forces = tether_forces * torch.sin(self.progress_buf)[0]
+        else:
+            forces = tether_forces
+        # forces += magnet_forces
+        # print(forces)
         self.gym.apply_rigid_body_force_tensors(self.sim, gymtorch.unwrap_tensor(forces), None, gymapi.LOCAL_SPACE)
 
     def set_commands(self, cmds):
@@ -337,12 +338,12 @@ class Crawler(VecTask):
         self.gym.set_dof_state_tensor(self.sim, gymtorch.unwrap_tensor(init_dof_pos))
 
 @torch.jit.script
-def compute_crawler_reward(measured_lin_vel, measured_ang_vel, target_lin_vel, target_ang_vel):
+def compute_crawler_reward_old(measured_lin_vel, measured_ang_vel, target_lin_vel, target_ang_vel):
     # type: (Tensor, Tensor, Tensor, Tensor) -> Tensor
 
     lm = target_lin_vel != 0
     lin_vel_error = torch.empty_like(target_lin_vel)
-    lin_vel_error[lm] = 1 - torch.abs((target_lin_vel[lm] - measured_lin_vel[lm])/target_lin_vel[lm])
+    lin_vel_error[lm] = 1 - torch.abs((target_lin_vel[lm] - measured_lin_vel[lm]))/torch.abs(target_lin_vel[lm])
     lin_vel_error[~lm] = 1 - torch.abs(target_lin_vel[~lm] - measured_lin_vel[~lm])
     am = target_ang_vel != 0
     ang_vel_error = torch.empty_like(target_ang_vel)
@@ -354,9 +355,21 @@ def compute_crawler_reward(measured_lin_vel, measured_ang_vel, target_lin_vel, t
     return reward
 
 @torch.jit.script
+def compute_crawler_reward(measured_lin_vel, measured_ang_vel, target_lin_vel, target_ang_vel, lin_vel_var, ang_vel_var):
+    # type: (Tensor, Tensor, Tensor, Tensor, float, float) -> Tensor
+    lin_vel_error = torch.square(target_lin_vel - measured_lin_vel)
+    ang_vel_error = torch.square(target_ang_vel - measured_ang_vel)
+    lin_reward = torch.exp(-lin_vel_error/lin_vel_var)
+    ang_reward = torch.exp(-ang_vel_error/ang_vel_var)
+    reward = 0.5*(lin_reward + ang_reward)
+    return reward
+
+@torch.jit.script
 def compute_crawler_reward_exp(measured_lin_vel, measured_ang_vel, target_lin_vel, target_ang_vel, lin_vel_var, ang_vel_var):
     # type: (Tensor, Tensor, Tensor, Tensor, float, float) -> Tensor
     lin_vel_error = torch.square(target_lin_vel - measured_lin_vel)
     ang_vel_error = torch.square(target_ang_vel - measured_ang_vel)
-    reward = torch.exp(-lin_vel_error/lin_vel_var) + torch.exp(-ang_vel_error/ang_vel_var)
+    lin_reward = 0.9 * torch.exp(-lin_vel_error/lin_vel_var) + 0.1 * torch.exp(-lin_vel_error/(100 * lin_vel_var))
+    ang_reward = 0.9 * torch.exp(-ang_vel_error/ang_vel_var) + 0.1 * torch.exp(-ang_vel_error/(100 * ang_vel_var))
+    reward = lin_reward * ang_reward
     return reward

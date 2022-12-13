@@ -1,5 +1,5 @@
 # used to create the object
-name: Crawler 
+name: Turtlebot  
 
 physics_engine: ${..physics_engine}
 
@@ -7,9 +7,8 @@ physics_engine: ${..physics_engine}
 env:
   vertical: False 
   numEnvs: ${resolve_default:1024,${...num_envs}}
-  # numEnvs: ${resolve_default:16,${...num_envs}}
   envSpacing: 0.9
-  maxEpisodeLength: 1000
+  maxEpisodeLength: 3000
   enableDebugVis: False
   controlFrequencyInv: 1 # 60Hz 
   clipObservations: 5.0
@@ -17,12 +16,11 @@ env:
   clipActions: 1.0
   magnetism: 0 
   tether: 0 
-  tetherApply: 0
-  addNoise: True 
+  addNoise: False 
   linVelNoise: 0.001 
   angVelNoise: 0.01 
   biasPeriod: 0.1
-  addBias: True 
+  addBias: False 
   linVelBias: 0.001 
   angVelBias: 0.01 
   linVelVariance: 0.01
@@ -34,13 +32,12 @@ env:
 
 sim:
   dt: 0.05
-  substeps: 30 
+  substeps: 30
   up_axis: "z"
   use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
   # gravity: [0.0, -100.0, -9.81]
   # gravity: [0.0, -9.81, 0.0]
   gravity: [0.0, 0.0, -9.81]
-  # gravity: [0.0, -9.81, -135.0]
   physx:
     # https://docs.nvidia.com/gameworks/content/gameworkslibrary/physx/guide/Manual/AdvancedCollisionDetection.html
     num_threads: ${....num_threads}

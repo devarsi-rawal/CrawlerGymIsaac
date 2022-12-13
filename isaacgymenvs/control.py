@@ -132,9 +132,9 @@ def launch_rlg_hydra(cfg: DictConfig):
     # with open(os.path.join(experiment_dir, 'config.yaml'), 'w') as f:
     #     f.write(OmegaConf.to_yaml(cfg))
     print(cfg.onnx_model)
-    fn = "runs/crawler-export/nn/crawler-export.onnx"
-    onnx_model = onnx.load(fn)
-    ort_model = ort.InferenceSession(fn)
+
+    onnx_model = onnx.load(cfg.onnx_model)
+    ort_model = ort.InferenceSession(cfg.onnx_model)
 
     env = create_env_thunk()
     obs_dict = env.reset()
@@ -146,6 +146,7 @@ def launch_rlg_hydra(cfg: DictConfig):
     print("actions:", _actions)
     num_steps = 0
     total_reward = 0
+    print("Substeps: ", cfg.task.sim.substeps)
     while not env.gym.query_viewer_has_closed(env.viewer):
         obs = obs_dict["obs"].detach().cpu().numpy().reshape((1, -1))
         outputs = ort_model.run(None, {"obs": obs})
